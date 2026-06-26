@@ -1,0 +1,110 @@
+/**
+ * Task 域 mock 数据：6 条 seed，覆盖各种 status / priority / phase 组合。
+ *
+ * 数据约束：
+ * - 字段顺序与 types/task.ts 中 Task 一致
+ * - 时间用字面量 ISO 8601，禁止 new Date()
+ * - id 用稳定的 deterministic id，便于在 SSR / client 之间共享
+ */
+
+import type { Task } from '@/types';
+
+export const mockTasks: Task[] = [
+  {
+    id: 'task-001',
+    title: '搭建 Codex Task Board MVP',
+    description: '为 Cognitive Venture OS 增加任务追踪页面，覆盖创建 / 编辑 / 删除 / 列表。',
+    phase: 'build',
+    status: 'done',
+    priority: 'urgent',
+    codexCommand: 'npm run build',
+    changedFiles: [
+      'types/task.ts',
+      'mock-data/tasks.ts',
+      'lib/repos/tasks.ts',
+      'app/tasks/page.tsx',
+      'app/tasks/new/page.tsx',
+      'app/tasks/[id]/page.tsx',
+    ],
+    testResult: { total: 3, passed: 3, failed: 0, summary: 'cn.test: 3/3' },
+    reviewNotes: '首版可上线。后续接入真实 storage 与多人协作。',
+    createdAt: '2026-06-20T10:00:00.000Z',
+    updatedAt: '2026-06-25T09:00:00.000Z',
+  },
+  {
+    id: 'task-002',
+    title: '设计 provider / connector 接口层',
+    description: '为 LLM / 评分 / 外部数据源提供统一抽象，方便 mock ↔ 真实 SDK 切换。',
+    phase: 'build',
+    status: 'done',
+    priority: 'high',
+    codexCommand: 'npm run typecheck',
+    changedFiles: [
+      'lib/providers/llm.ts',
+      'lib/providers/scoring.ts',
+      'lib/providers/connectors/github.ts',
+      'PROVIDER_ARCHITECTURE.md',
+    ],
+    testResult: { total: 3, passed: 3, failed: 0, summary: 'lint + typecheck + build all green' },
+    reviewNotes: '8 个接口齐备，下一步接入真实 SDK。',
+    createdAt: '2026-06-23T08:00:00.000Z',
+    updatedAt: '2026-06-25T11:30:00.000Z',
+  },
+  {
+    id: 'task-003',
+    title: '接入 Supabase 真实后端',
+    description: '把 mock-data 切到 supabase-js；保持 repos 接口签名不变。',
+    phase: 'launch',
+    status: 'doing',
+    priority: 'high',
+    codexCommand: 'npm i @supabase/supabase-js',
+    changedFiles: [],
+    testResult: undefined,
+    reviewNotes: undefined,
+    createdAt: '2026-06-25T07:30:00.000Z',
+    updatedAt: '2026-06-25T07:30:00.000Z',
+  },
+  {
+    id: 'task-004',
+    title: '把 GEO 监控扩展到 Perplexity',
+    description: '在 AIQuery.provider 里增加 perplexity 通道，复用 CitationCheckResult 流程。',
+    phase: 'scout',
+    status: 'backlog',
+    priority: 'medium',
+    codexCommand: undefined,
+    changedFiles: [],
+    testResult: undefined,
+    reviewNotes: undefined,
+    createdAt: '2026-06-24T15:00:00.000Z',
+    updatedAt: '2026-06-24T15:00:00.000Z',
+  },
+  {
+    id: 'task-005',
+    title: '修复 dashboard 的 hydration 警告',
+    description: 'Date.now() 在 SSR 与 client 不一致，需要改成 stable 时间。',
+    phase: 'build',
+    status: 'failed',
+    priority: 'medium',
+    codexCommand: 'npm run dev',
+    changedFiles: ['components/dashboard/ActivityFeed.tsx'],
+    testResult: { total: 1, passed: 0, failed: 1, summary: 'Hydration mismatch in rel()' },
+    failureReason: 'ActivityFeed 用 Date.now()，SSR 与 client 时间差导致 mismatch。需要传 server time 或改成静态。',
+    reviewNotes: '下一步：在 layout 注入服务端时间常量；或在 rel() 改用 ISO 字面量。',
+    createdAt: '2026-06-22T14:00:00.000Z',
+    updatedAt: '2026-06-23T10:00:00.000Z',
+  },
+  {
+    id: 'task-006',
+    title: '建立知识图谱种子数据',
+    description: '为 research / graph 域准备 10+ 个 GraphEntity（人物 / 公司 / 概念）和 5+ 条关系。',
+    phase: 'research',
+    status: 'review',
+    priority: 'low',
+    codexCommand: 'npm run lint',
+    changedFiles: ['mock-data/knowledge-graph.ts'],
+    testResult: { total: 1, passed: 1, failed: 0, summary: 'lint clean' },
+    reviewNotes: '等 operator review 后再 merge 到 main。',
+    createdAt: '2026-06-21T11:00:00.000Z',
+    updatedAt: '2026-06-24T16:00:00.000Z',
+  },
+];
