@@ -3,7 +3,7 @@
  *   ?mvpProjectId=<id> 预选 MVP
  *
  * 流程：选择 MVP（可选）→ 点击 "Generate PRD" → server action 调用
- * LLMProvider.generatePRDDraft → 创建 PRD（自动 version + 1）→ 跳到详情。
+ * LLMProvider.generatePRD → 创建 PRD（自动 version + 1）→ 跳到详情。
  */
 import Link from 'next/link';
 import { Card } from '@/components/ui/Card';

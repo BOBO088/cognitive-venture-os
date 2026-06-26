@@ -18,12 +18,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   runCitationCheck,
+  recordCitationCheck,
   listAICitationChecks,
   getAICitationCheck,
   listAICitationChecksByQuery,
   listAICitationChecksByPlatform,
   computeCitationStats,
   computeTrend,
+  computeGeoMetrics,
   buildCitationReportContext,
   generateWeeklyReport,
   CitationMonitorServiceError,
@@ -407,3 +409,187 @@ describe('exports', () => {
     }
   });
 });
+
+
+describe('recordCitationCheck (manual entry)', () => {
+  it('persists a complete check from human input', async () => {
+    const queryId = await pickBankQueryId();
+    const c = await recordCitationCheck({
+      queryId,
+      platform: 'perplexity',
+      checkedAt: '2026-06-25T15:00:00.000Z',
+      mentioned: true,
+      citedUrl: 'https://example.com/cvo/manual',
+      competitorMentions: ['Profound', 'Otterly'],
+      answerSummary: 'Manual entry: CVO appears in the GEO benchmark answer.',
+      geoScore: 82,
+      createdAt: MOCK_NOW,
+      updatedAt: MOCK_NOW,
+    });
+    expect(c.id.startsWith('cite_')).toBe(true);
+    expect(c.queryId).toBe(queryId);
+    expect(c.platform).toBe('perplexity');
+    expect(c.mentioned).toBe(true);
+    expect(c.citedUrl).toBe('https://example.com/cvo/manual');
+    expect(c.competitorMentions).toEqual(['Profound', 'Otterly']);
+    expect(c.geoScore).toBe(82);
+  });
+
+  it('rejects unknown queryId without touching repo', async () => {
+    const before = await listAICitationChecks();
+    await expect(
+      recordCitationCheck({
+        queryId: 'bank_does_not_exist',
+        platform: 'chatgpt',
+        checkedAt: MOCK_NOW,
+        mentioned: true,
+        competitorMentions: [],
+        answerSummary: 'x',
+        geoScore: 50,
+        createdAt: MOCK_NOW,
+        updatedAt: MOCK_NOW,
+      }),
+    ).rejects.toThrow(/AIQueryBankItem not found/);
+    const after = await listAICitationChecks();
+    expect(after.length).toBe(before.length);
+  });
+
+  it('rejects invalid platform (re-uses validatePlatform)', async () => {
+    const queryId = await pickBankQueryId();
+    await expect(
+      recordCitationCheck({
+        queryId,
+        // @ts-expect-error -- testing invalid enum at runtime
+        platform: 'not_a_platform',
+        checkedAt: MOCK_NOW,
+        mentioned: true,
+        competitorMentions: [],
+        answerSummary: 'x',
+        geoScore: 50,
+        createdAt: MOCK_NOW,
+        updatedAt: MOCK_NOW,
+      }),
+    ).rejects.toThrow(/platform/);
+  });
+
+  it('rejects invalid citedUrl', async () => {
+    const queryId = await pickBankQueryId();
+    await expect(
+      recordCitationCheck({
+        queryId,
+        platform: 'chatgpt',
+        checkedAt: MOCK_NOW,
+        mentioned: true,
+        citedUrl: 'ftp://nope',
+        competitorMentions: [],
+        answerSummary: 'x',
+        geoScore: 50,
+        createdAt: MOCK_NOW,
+        updatedAt: MOCK_NOW,
+      }),
+    ).rejects.toThrow(/http/);
+  });
+
+  it('accepts missing citedUrl (undefined)', async () => {
+    const queryId = await pickBankQueryId();
+    const c = await recordCitationCheck({
+      queryId,
+      platform: 'gemini',
+      checkedAt: MOCK_NOW,
+      mentioned: false,
+      competitorMentions: ['Scrunch'],
+      answerSummary: 'Brand absent from Gemini answer.',
+      geoScore: 12,
+      createdAt: MOCK_NOW,
+      updatedAt: MOCK_NOW,
+    });
+    expect(c.citedUrl).toBeUndefined();
+    expect(c.mentioned).toBe(false);
+  });
+});
+
+describe('computeGeoMetrics (7 GEO metrics)', () => {
+  async function pickBrandAndChecks(): Promise<{
+    brandId: string;
+    checks: import('@/types').AICitationCheck[];
+    bankItems: import('@/types').AIQueryBankItem[];
+    contentAssets: import('@/types').ContentAsset[];
+  }> {
+    const { listBrandEntityProfiles } = await import('./geoBrandService');
+    const { listContentAssets } = await import('./contentAssetService');
+    const { listAIQueryBankItems } = await import('./aiQueryService');
+    const brands = await listBrandEntityProfiles();
+    const bankItems = await listAIQueryBankItems();
+    const contentAssets = await listContentAssets();
+    const brand = brands[0]!;
+    const brandQueries = bankItems.filter((q) => q.brandEntityId === brand.id);
+    const { listAICitationChecks } = await import('./citationMonitorService');
+    const all = await listAICitationChecks();
+    const qidSet = new Set(brandQueries.map((q) => q.id));
+    const checks = all.filter((c) => qidSet.has(c.queryId));
+    return { brandId: brand.id, checks, bankItems, contentAssets };
+  }
+
+  it('returns all 7 metrics in [0,1] / day range', async () => {
+    const { brandId, checks, bankItems, contentAssets } =
+      await pickBrandAndChecks();
+    const { getBrandEntityProfile } = await import('./geoBrandService');
+    const brand = await getBrandEntityProfile(brandId);
+    expect(brand).toBeDefined();
+    const m = await computeGeoMetrics({
+      checks,
+      bankItems,
+      brand: brand!,
+      contentAssets,
+      referenceDate: '2026-06-25',
+    });
+    expect(m.brandMentionRate).toBeGreaterThanOrEqual(0);
+    expect(m.brandMentionRate).toBeLessThanOrEqual(1);
+    expect(m.citationRate).toBeGreaterThanOrEqual(0);
+    expect(m.citationRate).toBeLessThanOrEqual(1);
+    expect(m.competitorMentionRate).toBeGreaterThanOrEqual(0);
+    expect(m.competitorMentionRate).toBeLessThanOrEqual(1);
+    expect(m.answerInclusionRate).toBeGreaterThanOrEqual(0);
+    expect(m.answerInclusionRate).toBeLessThanOrEqual(1);
+    expect(m.queryCoverage).toBeGreaterThanOrEqual(0);
+    expect(m.queryCoverage).toBeLessThanOrEqual(1);
+    expect(m.contentFreshnessDays).toBeGreaterThanOrEqual(0);
+    expect(m.entityConsistency).toBeGreaterThanOrEqual(0);
+    expect(m.entityConsistency).toBeLessThanOrEqual(1);
+  });
+
+  it('brandMentionRate equals mentionRate (alias)', async () => {
+    const { brandId, checks, bankItems, contentAssets } =
+      await pickBrandAndChecks();
+    const { getBrandEntityProfile } = await import('./geoBrandService');
+    const brand = await getBrandEntityProfile(brandId);
+    const m = await computeGeoMetrics({
+      checks,
+      bankItems,
+      brand: brand!,
+      contentAssets,
+      referenceDate: '2026-06-25',
+    });
+    expect(m.brandMentionRate).toBe(m.mentionRate);
+  });
+
+  it('returns zero rates when no checks are provided', async () => {
+    const { brandId, bankItems, contentAssets } = await pickBrandAndChecks();
+    const { getBrandEntityProfile } = await import('./geoBrandService');
+    const brand = await getBrandEntityProfile(brandId);
+    const m = await computeGeoMetrics({
+      checks: [],
+      bankItems,
+      brand: brand!,
+      contentAssets,
+      referenceDate: '2026-06-25',
+    });
+    expect(m.totalChecks).toBe(0);
+    expect(m.brandMentionRate).toBe(0);
+    expect(m.citationRate).toBe(0);
+    expect(m.competitorMentionRate).toBe(0);
+    expect(m.answerInclusionRate).toBe(0);
+    expect(m.queryCoverage).toBe(0);
+  });
+});
+

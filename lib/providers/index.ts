@@ -12,6 +12,7 @@
  */
 
 import { createMockLLMProvider } from './mock/llm';
+import { getAppMode, isOpenAIConfigured } from '@/lib/env';
 import { createMockResearchProvider } from './mock/research';
 import { createMockGEOProvider } from './mock/geo';
 import { createMockEvaluationProvider } from './mock/evaluation';
@@ -23,6 +24,8 @@ import { createMockStorageProvider } from './mock/connectors/storage';
 import { createMockLaunchMetricsConnector } from './mock/connectors/launch-metrics';
 import { createMockCitationMonitorConnector } from './mock/connectors/citation-monitor';
 import { createMockSignalSourceConnector } from './mock/connectors/signal-source';
+import { createMockSearchConsoleConnector } from './mock/connectors/search-console';
+import { createMockBrowserMCPConnector } from './mock/connectors/browser-mcp';
 
 import type { LLMProvider } from './llm';
 import type { ResearchProvider } from './research';
@@ -36,7 +39,10 @@ import type { StorageProvider } from './connectors/storage';
 import type { LaunchMetricsConnector } from './connectors/launch-metrics';
 import type { CitationMonitorConnector } from './connectors/citation-monitor';
 import type { SignalSourceConnector } from './connectors/signal-source';
+import { getAuthProvider } from './auth';
 
+import type { SearchConsoleConnector } from './connectors/search-console';
+import type { BrowserMCPConnector } from './connectors/browser-mcp';
 // ---------- Provider 工厂 ----------
 
 let _llm: LLMProvider | null = null;
@@ -45,7 +51,17 @@ let _geo: GEOProvider | null = null;
 let _evaluation: EvaluationProvider | null = null;
 
 export async function getLLMProvider(): Promise<LLMProvider> {
-  if (!_llm) _llm = createMockLLMProvider();
+  if (_llm) return _llm;
+  const mode = getAppMode();
+  if ((mode === 'staging' || mode === 'production') && isOpenAIConfigured()) {
+    const { createOpenAILLMProvider } = await import('./real/llm');
+    const { createFallbackLLMProvider } = await import('./real/fallback');
+    const real = createOpenAILLMProvider();
+    const mock = createMockLLMProvider();
+    _llm = createFallbackLLMProvider(real, mock);
+  } else {
+    _llm = createMockLLMProvider();
+  }
   return _llm;
 }
 
@@ -63,6 +79,11 @@ export async function getEvaluationProvider(): Promise<EvaluationProvider> {
   if (!_evaluation) _evaluation = createMockEvaluationProvider();
   return _evaluation;
 }
+
+// AuthProvider is a "5th provider" — 工厂在 auth.ts 内部按 env 派发 mock / supabase。
+// 这里只是把 getAuthProvider 再 export 出去，保持调用方统一从 '@/lib/providers' import。
+export { getAuthProvider, ROLE_RANK } from './auth';
+export type { AuthUser, AuthSession, UserRole, SignInInput, AuthProvider } from './auth';
 
 // ---------- Connector 工厂 ----------
 
@@ -117,6 +138,20 @@ export async function getSignalSourceConnector(): Promise<SignalSourceConnector>
   return _signalSource;
 }
 
+// ---------- 新增 connector 工厂（Search Console / Browser MCP） ----------
+let _searchConsole: SearchConsoleConnector | null = null;
+let _browserMcp: BrowserMCPConnector | null = null;
+
+export async function getSearchConsoleConnector(): Promise<SearchConsoleConnector> {
+  if (!_searchConsole) _searchConsole = createMockSearchConsoleConnector();
+  return _searchConsole;
+}
+
+export async function getBrowserMCPConnector(): Promise<BrowserMCPConnector> {
+  if (!_browserMcp) _browserMcp = createMockBrowserMCPConnector();
+  return _browserMcp;
+}
+
 
 // ---------- 聚合 health 入口（供 dashboard SystemStatus 使用） ----------
 
@@ -132,6 +167,7 @@ export async function getAllProvidersHealth(): Promise<ProviderHealth[]> {
     research,
     geo,
     ev,
+    auth,
     ds,
     sourceConn,
     gh,
@@ -140,11 +176,14 @@ export async function getAllProvidersHealth(): Promise<ProviderHealth[]> {
     launchMetrics,
     citationMonitor,
     signalSource,
+    searchConsole,
+    browserMcp,
   ] = await Promise.all([
     getLLMProvider(),
     getResearchProvider(),
     getGEOProvider(),
     getEvaluationProvider(),
+    getAuthProvider(),
     getDataSourceConnector(),
     getSourceConnector(),
     getGitHubConnector(),
@@ -153,12 +192,15 @@ export async function getAllProvidersHealth(): Promise<ProviderHealth[]> {
     getLaunchMetricsConnector(),
     getCitationMonitorConnector(),
     getSignalSourceConnector(),
+    getSearchConsoleConnector(),
+    getBrowserMCPConnector(),
   ]);
   const results = await Promise.all([
     llm.health(),
     research.health(),
     geo.health(),
     ev.health(),
+    auth.health(),
     ds.health(),
     sourceConn.health(),
     gh.health(),
@@ -167,12 +209,15 @@ export async function getAllProvidersHealth(): Promise<ProviderHealth[]> {
     launchMetrics.health(),
     citationMonitor.health(),
     signalSource.health(),
+    searchConsole.health(),
+    browserMcp.health(),
   ]);
   const names = [
     'LLMProvider',
     'ResearchProvider',
     'GEOProvider',
     'EvaluationProvider',
+    'AuthProvider',
     'DataSourceConnector',
     'SourceConnector',
     'GitHubConnector',
@@ -181,6 +226,8 @@ export async function getAllProvidersHealth(): Promise<ProviderHealth[]> {
     'LaunchMetricsConnector',
     'CitationMonitorConnector',
     'SignalSourceConnector',
+    'SearchConsoleConnector',
+    'BrowserMCPConnector',
   ];
   return results.map((r, i) => ({ name: names[i]!, ok: r.ok, detail: r.detail }));
 }

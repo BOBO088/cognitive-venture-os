@@ -151,7 +151,7 @@ export interface GenerateCodexTaskListOptions {
 /**
  * 从一份 PRD 生成 Codex 任务列表（落库）。
  * 1. 校验 PRD 存在 + 取关联 MVP
- * 2. 调 LLMProvider.generateCodexTaskList
+ * 2. 调 LLMProvider.generateCodexTasks
  * 3. 把每条 draft 转成 Task 写入 mockTasks
  * 4. 返回 run 聚合
  */
@@ -194,7 +194,7 @@ export async function generateCodexTaskListForPRD(
       devPlan: prd.devPlan,
     },
   };
-  const draft = await provider.generateCodexTaskList(providerInput);
+  const draft = await provider.generateCodexTasks(providerInput);
 
   // 写库
   const createdTasks: Task[] = [];

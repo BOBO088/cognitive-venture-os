@@ -3,7 +3,7 @@
  *
  * 锁定契约：
  *  - stats 永远返回 7 个域（按固定顺序）
- *  - providers 永远返回 12 条（4 provider + 8 connector）
+ *  - providers 永远返回 15 条（5 provider + 10 connector）
  *  - recent 永远 <= 8 条，按 updatedAt desc
  */
 import { describe, it, expect } from 'vitest';
@@ -34,9 +34,9 @@ describe('dashboardService.getDashboardSnapshot', () => {
     }
   });
 
-  it('aggregates 12 provider/connector health entries', async () => {
+  it('aggregates 15 provider/connector health entries', async () => {
     const snap = await getDashboardSnapshot();
-    expect(snap.providers).toHaveLength(12);
+    expect(snap.providers).toHaveLength(15);
   });
 
   it('recent items sorted by updatedAt desc and capped at 8', async () => {

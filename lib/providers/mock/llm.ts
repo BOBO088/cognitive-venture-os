@@ -115,6 +115,16 @@ function round1(n: number): number {
 
 export function createMockLLMProvider(): LLMProvider {
   return {
+    name: 'MockLLMProvider',
+
+    getCostLog() {
+      return [];
+    },
+
+    clearCostLog() {
+      // no-op
+    },
+
     async health() {
       return { ok: true, detail: 'mock' };
     },
@@ -241,7 +251,7 @@ export function createMockLLMProvider(): LLMProvider {
       } satisfies OpportunityDraft;
     },
 
-    async generatePRDDraft(input: PRDDraftInput): Promise<PRDDraft> {
+    async generatePRD(input: PRDDraftInput): Promise<PRDDraft> {
       const name = input.mvpProject.name;
       const stage = input.mvpProject.stage;
       const launches = input.launchCount ?? 0;
@@ -406,7 +416,7 @@ export function createMockLLMProvider(): LLMProvider {
     },
 
 
-    async generateCodexTaskList(input: CodexTaskListInput): Promise<CodexTaskListDraft> {
+    async generateCodexTasks(input: CodexTaskListInput): Promise<CodexTaskListDraft> {
       const name = input.mvpProject.name;
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mvp';
       const desc = firstLine(input.mvpProject.description);
@@ -519,7 +529,7 @@ export function createMockLLMProvider(): LLMProvider {
       } satisfies CodexTaskListDraft;
     },
 
-    async generateLessons(launchResult: LaunchResult) {
+    async generateLessonLearned(launchResult: LaunchResult) {
       // 由 launch result 的 status 决定 whatWorked / whatFailed 的初始语气；
       // user 拿到预填后通常会大幅改写，再 save。
       const status = launchResult.resultStatus;
@@ -569,7 +579,7 @@ export function createMockLLMProvider(): LLMProvider {
         updatedAt: MOCK_NOW,
       } satisfies LessonLearned;
     },
-    async suggestImprovement(
+    async improvePromptVersion(
       target:
         | { kind: 'prompt'; prompt: PromptVersion }
         | { kind: 'loop'; loop: LoopVersion },

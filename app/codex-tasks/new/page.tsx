@@ -3,7 +3,7 @@
  *   ?prdId=<id> 预选 PRD
  *
  * 流程：选择 PRD（可选）→ 点击 "Generate task list" → server action 调用
- * LLMProvider.generateCodexTaskList → 写 6 条 Task 落 Codex Task Board → 跳到 run 详情。
+ * LLMProvider.generateCodexTasks → 写 6 条 Task 落 Codex Task Board → 跳到 run 详情。
  */
 import Link from 'next/link';
 import { Card } from '@/components/ui/Card';

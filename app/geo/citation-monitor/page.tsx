@@ -14,6 +14,7 @@ import { Stat } from '@/components/ui/Stat';
 import { Badge } from '@/components/ui/Badge';
 import { CitationCheckList } from '@/components/geo/CitationCheckList';
 import { CitationCheckForm } from '@/components/geo/CitationCheckForm';
+import { RecordCitationCheckForm } from '@/components/geo/RecordCitationCheckForm';
 import { CitationTrendChart } from '@/components/geo/CitationTrendChart';
 import {
   listAICitationChecks,
@@ -27,7 +28,10 @@ import {
   CITATION_PLATFORM_LABEL,
 } from '@/types';
 import type { CitationPlatform } from '@/types';
-import { runCitationCheckAction } from './actions';
+import {
+  runCitationCheckAction,
+  recordCitationCheckAction,
+} from './actions';
 
 export const metadata = {
   title: 'AI citation monitor · Cognitive Venture OS',
@@ -139,8 +143,12 @@ export default async function CitationMonitorPage({ searchParams }: PageProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Card>
           <h2 className="text-sm font-medium text-muted mb-3">
-            Run a new check
+            Run a new check (mock auto)
           </h2>
+          <p className="text-[10px] text-muted mb-3">
+            Quick path: pick query + platform + time, results come from the
+            mock connector (deterministic placeholder).
+          </p>
           <CitationCheckForm
             bankItems={bankItems}
             onSubmit={runCitationCheckAction}
@@ -148,6 +156,24 @@ export default async function CitationMonitorPage({ searchParams }: PageProps) {
             defaultPlatform={platform ?? 'chatgpt'}
           />
         </Card>
+        <Card>
+          <h2 className="text-sm font-medium text-muted mb-3">
+            Record check manually
+          </h2>
+          <p className="text-[10px] text-muted mb-3">
+            For real ChatGPT / Perplexity / Gemini answers before Browser MCP
+            ships. All result fields go straight into the data layer.
+          </p>
+          <RecordCitationCheckForm
+            bankItems={bankItems}
+            onSubmit={recordCitationCheckAction}
+            defaultQueryId={queryIdRaw}
+            defaultPlatform={platform ?? 'chatgpt'}
+          />
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Card>
           <h2 className="text-sm font-medium text-muted mb-3">
             By platform
@@ -224,9 +250,15 @@ export default async function CitationMonitorPage({ searchParams }: PageProps) {
             )}
             <Link
               href="/geo/reports"
+              className="text-accent hover:underline"
+            >
+              Weekly report &rarr;
+            </Link>
+            <Link
+              href="/geo/metrics"
               className="ml-auto text-accent hover:underline"
             >
-              Open weekly report &rarr;
+              GEO metrics &rarr;
             </Link>
           </div>
         </div>

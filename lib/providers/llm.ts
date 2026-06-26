@@ -3,6 +3,26 @@
  *
  * 应用代码**禁止**直接 import 'openai' / 'anthropic' / 任何 LLM SDK；
  * 必须通过此接口走。切真实 SDK 时只换实现，调用方零改动。
+ *
+ * 8 个核心方法（业务侧主用）：
+ *   1. summarizeSource          把 SourceItem 浓缩成 1 段摘要
+ *   2. generateResearchCard     基于 topic + sourceIds 生成 ResearchCard
+ *   3. scoreOpportunity         对 Opportunity 做多维评分
+ *   4. generatePRD              基于 MVPProject 生成 PRD 草稿
+ *   5. generateCodexTasks       基于 PRD 派生 6 步 Codex 任务
+ *   6. generateGEOSuggestions   基于 brand + queries 生成 GEO 建议
+ *   7. generateLessonLearned    从 LaunchResult 抽象 LessonLearned
+ *   8. improvePromptVersion     对 PromptVersion / LoopVersion 生成改进建议
+ *
+ * 派发逻辑（getLLMProvider 在 index.ts）：
+ *   - demo 模式                                   → mock 实现
+ *   - staging/production + OPENAI_API_KEY 配齐   → OpenAI 实现（带 fallback 包装）
+ *   - staging/production + OPENAI_API_KEY 缺失   → mock 实现（warn）
+ *
+ * cost log：
+ *   - 所有 LLM 调用都通过 getCostLog() 暴露成本
+ *   - 真实实现会跟踪 token 用量 + 单价计算 USD 成本
+ *   - mock 实现返回空数组（没有真实 token 消耗）
  */
 
 import type {
@@ -33,13 +53,28 @@ export interface OpportunityScore {
   rationale: string;
 }
 
+/** 单次 LLM 调用的成本记录。real provider 会写、mock provider 不写。 */
+export interface CostLogEntry {
+  method: string;            // 'summarizeSource' / 'generatePRD' / ...
+  model: string;             // 'gpt-4o-mini' / 'mock' 等
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;           // 估算
+  durationMs: number;
+  fallback: boolean;         // true 表示 OpenAI 失败、回落到 mock
+  error?: string;            // 失败时的错误 message（fallback=true 时填）
+  timestamp: string;         // ISO 8601
+}
+
 export interface LLMProvider {
+  name: string;
   health(): Promise<{ ok: boolean; detail?: string }>;
 
-  /** 把一条 SourceItem 浓缩成一段摘要文本。 */
+  /** 1) 把一条 SourceItem 浓缩成一段摘要文本。 */
   summarizeSource(source: SourceItem): Promise<string>;
 
-  /** 基于 topic + sourceIds 生成一张 ResearchCard。 */
+  /** 2) 基于 topic + sourceIds 生成一张 ResearchCard。 */
   generateResearchCard(
     topic: ResearchTopic,
     sourceIds: string[],
@@ -54,17 +89,17 @@ export interface LLMProvider {
     sourceIds: string[],
   ): Promise<CardDraft>;
 
-  /** 多维评分 + 理由。 */
+  /** 3) 多维评分 + 理由。 */
   scoreOpportunity(opportunity: Opportunity): Promise<OpportunityScore>;
 
-  /** 基于 brand 现状 + 监控中的 query，生成 GEO 优化建议。 */
+  /** 6) 基于 brand 现状 + 监控中的 query，生成 GEO 优化建议。 */
   generateGEOSuggestions(
     brand: GEOBrandEntity,
     queries: AIQuery[],
   ): Promise<string[]>;
 
-  /** 从一次 LaunchResult 抽象出一条 LessonLearned。 */
-  generateLessons(launchResult: LaunchResult): Promise<LessonLearned>;
+  /** 7) 从一次 LaunchResult 抽象出一条 LessonLearned。 */
+  generateLessonLearned(launchResult: LaunchResult): Promise<LessonLearned>;
 
   /**
    * 基于一组 Signal + ResearchCard 生成 Opportunity 草稿。
@@ -77,11 +112,11 @@ export interface LLMProvider {
     researchCardIds: string[];
   }): Promise<OpportunityDraft>;
 
-  /** 基于 MVPProject（+ 关联 Opportunity / launches）生成 PRD 草稿。 */
-  generatePRDDraft(input: PRDDraftInput): Promise<PRDDraft>;
+  /** 4) 基于 MVPProject（+ 关联 Opportunity / launches）生成 PRD 草稿。 */
+  generatePRD(input: PRDDraftInput): Promise<PRDDraft>;
 
-  /** 基于 PRD 9 个 section 派生一组 Codex 任务（6 大分类）。 */
-  generateCodexTaskList(input: CodexTaskListInput): Promise<CodexTaskListDraft>;
+  /** 5) 基于 PRD 9 个 section 派生一组 Codex 任务（6 大分类）。 */
+  generateCodexTasks(input: CodexTaskListInput): Promise<CodexTaskListDraft>;
 
   /**
    * 基于一个 BrandEntityProfile + intent 派生一组 AI Query Bank 草稿。
@@ -96,17 +131,18 @@ export interface LLMProvider {
     count: number;
   }): Promise<AIQueryBankDraft[]>;
 
-  /**
-   * 基于一个 prompt / loop 的当前状态生成改进建议。
-   *
-   * 输出不含 id / createdAt / updatedAt / targetType / targetId ——
-   * 这些由 service 补齐。LLMProvider 只负责"内容生成"。
-   */
-  suggestImprovement(
+  /** 8) 基于一个 prompt / loop 的当前状态生成改进建议。 */
+  improvePromptVersion(
     target:
       | { kind: 'prompt'; prompt: PromptVersion }
       | { kind: 'loop'; loop: LoopVersion },
   ): Promise<ImprovementDraft>;
+
+  /** 拿当前会话累计 cost log（不持久化，重启清空）。 */
+  getCostLog(): CostLogEntry[];
+
+  /** 清空 cost log（用于测试 / 周期归零）。 */
+  clearCostLog(): void;
 }
 
 /**

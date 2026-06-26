@@ -2,7 +2,7 @@
  * PromptVersionService — 提示词版本的业务规则层。
  *
  * 分层：UI / actions → service（这里）→ repo → mock-data。
- *                            ↘ llmProvider.suggestImprovement（生成改进草稿）
+ *                            ↘ llmProvider.improvePromptVersion（生成改进草稿）
  *
  * 业务规则：
  *   1. name 1-200 字符
@@ -309,5 +309,5 @@ export async function suggestImprovementForPrompt(
     throw new PromptVersionServiceError(`Prompt version not found: ${promptId}`);
   }
   const provider = await getLLMProvider();
-  return provider.suggestImprovement({ kind: 'prompt', prompt });
+  return provider.improvePromptVersion({ kind: 'prompt', prompt });
 }

@@ -34,7 +34,13 @@ import { getCitationMonitorConnector } from '@/lib/providers';
 import {
   CITATION_PLATFORMS,
 } from '@/types';
-import type { AICitationCheck, CitationPlatform } from '@/types';
+import type {
+  AICitationCheck,
+  CitationPlatform,
+  AIQueryBankItem,
+  BrandEntityProfile,
+  ContentAsset,
+} from '@/types';
 
 const ANSWER_SUMMARY_MAX = 2000;
 const CITED_URL_MAX = 500;
@@ -364,6 +370,80 @@ export async function runCitationCheck(
   return _repoInsert(created);
 }
 
+/* ----------------- Manual entry (parallel to runCitationCheck) ----------------- */
+
+/**
+ * recordCitationCheck — 人工录入一次 AI 引用检查。
+ *
+ * 与 `runCitationCheck` 的区别：
+ *   - runCitationCheck：通过 CitationMonitorConnector 拿结果（mock 派生 / 未来真实爬）
+ *   - recordCitationCheck：调用方直接把答案 / 提及 / 引用 URL / 竞品 / 分数 录进来
+ *
+ * 用途：ChatGPT / Perplexity / Gemini / Google AI Overview / Claude 当前没有
+ * 官方 API，本服务先用人工录入把"AI 答案里有没有提到我们"沉淀成可追踪数据，
+ * 之后用 Search Console + Browser MCP 自动检测做 ground truth 对照。
+ *
+ * 字段校验与 runCitationCheck 完全一致（复用 validateXxx helpers），保持
+ * 两条写路径写入的 AICitationCheck 同形。
+ */
+export interface RecordCitationCheckInput {
+  queryId: string;
+  platform: CitationPlatform;
+  checkedAt: string;
+  mentioned: boolean;
+  /** 可选。存在时按 http(s) URL 校验。 */
+  citedUrl?: string;
+  /** 竞品名列表。≤ 20。 */
+  competitorMentions: string[];
+  /** AI 答案摘要，1-2000 字符。 */
+  answerSummary: string;
+  /** GEO 健康分 0-100 整数。 */
+  geoScore: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function recordCitationCheck(
+  input: RecordCitationCheckInput,
+): Promise<AICitationCheck> {
+  if (typeof input.queryId !== 'string' || input.queryId.length === 0) {
+    throw new CitationMonitorServiceError('queryId is required');
+  }
+  const query = await getAIQueryBankItem(input.queryId);
+  if (!query) {
+    throw new CitationMonitorServiceError(
+      `AIQueryBankItem not found: ${input.queryId}`,
+    );
+  }
+  const platform = validatePlatform(input.platform);
+  const checkedAt = validateCheckedAt(input.checkedAt);
+  const citedUrl = validateCitedUrl(input.citedUrl);
+  const competitorMentions = validateCompetitorMentions(
+    input.competitorMentions,
+  );
+  const answerSummary = validateAnswerSummary(input.answerSummary);
+  const geoScore = validateGeoScore(input.geoScore);
+
+  const id = `cite_${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+
+  const created: AICitationCheck = {
+    id,
+    queryId: query.id,
+    platform,
+    checkedAt,
+    mentioned: Boolean(input.mentioned),
+    competitorMentions,
+    answerSummary,
+    geoScore,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    ...(citedUrl !== undefined ? { citedUrl } : {}),
+  };
+  return _repoInsert(created);
+}
+
 /* ----------------- Report context ----------------- */
 
 export interface CitationCheckReportContext {
@@ -571,5 +651,159 @@ export async function generateWeeklyReport(
     trend: trendInRange,
     topCitedUrls,
     topCompetitors,
+  };
+}
+
+/* ----------------- 7 GEO metrics (operational) ----------------- */
+
+/**
+ * GeoMetrics — 7 个 GEO 健康指标（0-1 / days / count）。
+ *
+ * 详细公式 / 阈值 / 行动建议见 /GEO_METRICS.md。
+ *
+ * | 指标                    | 单位      | 含义                            |
+ * |-------------------------|-----------|----------------------------------|
+ * | brandMentionRate        | 0-1       | 答案里提到目标 brand 的比例     |
+ * | citationRate            | 0-1       | 引用 URL 命中 brand 官方链接的比例 |
+ * | competitorMentionRate   | 0-1       | 答案里出现竞品的比例            |
+ * | answerInclusionRate     | 0-1       | 答案里含 brand canonicalName/alias 的比例 |
+ * | queryCoverage           | 0-1       | active bank items 中有 ≥1 次 check 的比例 |
+ * | contentFreshnessDays    | days      | 关联内容资产平均 updatedAt 距今  |
+ * | entityConsistency       | 0-1       | 答案里出现 brand canonicalName（而非 alias）的比例 |
+ */
+export interface GeoMetrics {
+  totalChecks: number;
+  /** 与 `mentionRate` 同值；保留两个名字以便逐步迁移。 */
+  brandMentionRate: number;
+  /** 与 `mentionRate` 同值（向后兼容）。 */
+  mentionRate: number;
+  /** 引用 brand 官方链接的比例。 */
+  citationRate: number;
+  /** 答案里出现竞品的比例。 */
+  competitorMentionRate: number;
+  /** 答案文本包含 brand canonicalName 或任何 alias 的比例。 */
+  answerInclusionRate: number;
+  /** active bank items 中有 ≥1 次 check 的比例。 */
+  queryCoverage: number;
+  /** 关联内容资产平均更新时间距 referenceDate 的天数。值越小越新鲜。 */
+  contentFreshnessDays: number;
+  /** 答案里出现 brand canonicalName（精确匹配，非 alias）的比例。 */
+  entityConsistency: number;
+}
+
+export interface ComputeGeoMetricsInput {
+  checks: AICitationCheck[];
+  bankItems: AIQueryBankItem[];
+  brand: BrandEntityProfile;
+  contentAssets: ContentAsset[];
+  /** 计算 contentFreshness 用的"今天"。ISO date (YYYY-MM-DD)。 */
+  referenceDate: string;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export async function computeGeoMetrics(
+  input: ComputeGeoMetricsInput,
+): Promise<GeoMetrics> {
+  const checks = Array.isArray(input.checks) ? input.checks : [];
+  const bankItems = Array.isArray(input.bankItems) ? input.bankItems : [];
+  const contentAssets = Array.isArray(input.contentAssets)
+    ? input.contentAssets
+    : [];
+  const refTime = new Date(input.referenceDate).getTime();
+  if (Number.isNaN(refTime)) {
+    throw new CitationMonitorServiceError('referenceDate must be ISO date');
+  }
+
+  // 目标 brand 上下文。
+  // 注：v2 BrandEntityProfile 没有 aliases / canonicalName 拆分；
+  //     `name` 同时承担 canonical 角色。v0.1 GEOBrandEntity 才有
+  //     canonicalName + aliases。后续 v3 brand 可拆出 aliases 再升级。
+  const targetUrls = new Set(input.brand.officialLinks ?? []);
+  const canonical = (input.brand.name ?? '').toLowerCase();
+  const aliases: string[] = []; // v2 brand: 无 aliases 字段
+
+  // 仅过滤该 brand 的 bank items（active 状态作为分母）
+  const brandBankItems = bankItems.filter(
+    (q) => q.brandEntityId === input.brand.id,
+  );
+  const activeBankItems = brandBankItems.filter((q) => q.status === 'active');
+  const activeBankIdSet = new Set(activeBankItems.map((q) => q.id));
+
+  // 取与该 brand 关联的 citation check（check.queryId ∈ activeBankIdSet）
+  const brandChecks = checks.filter((c) => activeBankIdSet.has(c.queryId));
+
+  const total = brandChecks.length;
+  let mentionedCount = 0;
+  let citationCount = 0;
+  let competitorCount = 0;
+  let inclusionCount = 0;
+  let canonicalCount = 0;
+  for (const c of brandChecks) {
+    if (c.mentioned) mentionedCount += 1;
+    if (c.citedUrl && targetUrls.has(c.citedUrl)) citationCount += 1;
+    if (Array.isArray(c.competitorMentions) && c.competitorMentions.length > 0) {
+      competitorCount += 1;
+    }
+    const lower = (c.answerSummary ?? '').toLowerCase();
+    if (canonical && lower.includes(canonical)) {
+      inclusionCount += 1;
+      canonicalCount += 1;
+    } else if (aliases.length > 0) {
+      for (const a of aliases) {
+        if (a && lower.includes(a)) {
+          inclusionCount += 1;
+          break;
+        }
+      }
+    }
+  }
+
+  // queryCoverage = 该 brand active bank items 中有 ≥1 次 check 的比例
+  const coveredIds = new Set(brandChecks.map((c) => c.queryId));
+  let coveredCount = 0;
+  for (const q of activeBankItems) {
+    if (coveredIds.has(q.id)) coveredCount += 1;
+  }
+  const queryCoverage =
+    activeBankItems.length === 0 ? 0 : coveredCount / activeBankItems.length;
+
+  // contentFreshnessDays = 关联内容资产 updatedAt 距 referenceDate 的平均天数
+  //   - 优先取被 answerSummary 引用过的（citedUrl in officialLinks）
+  //   - 若没有，检查所有 brand.contentAssets
+  //   - 若仍空，回退到所有 contentAssets（avoid 返回 NaN）
+  const brandAssetIds = new Set(
+    contentAssets
+      .filter((a) => a.brandEntityId === input.brand.id)
+      .map((a) => a.id),
+  );
+  let relevantAssets = contentAssets.filter((a) => brandAssetIds.has(a.id));
+  if (relevantAssets.length === 0 && contentAssets.length > 0) {
+    relevantAssets = contentAssets;
+  }
+  let freshnessSum = 0;
+  for (const a of relevantAssets) {
+    const t = new Date(a.updatedAt).getTime();
+    if (Number.isNaN(t)) continue;
+    const days = Math.max(0, (refTime - t) / DAY_MS);
+    freshnessSum += days;
+  }
+  const contentFreshnessDays =
+    relevantAssets.length === 0
+      ? 0
+      : Math.round((freshnessSum / relevantAssets.length) * 10) / 10;
+
+  const safe = (n: number, d: number): number => (d === 0 ? 0 : n / d);
+
+  return {
+    totalChecks: total,
+    mentionRate: safe(mentionedCount, total),
+    brandMentionRate: safe(mentionedCount, total),
+    citationRate: safe(citationCount, total),
+    competitorMentionRate: safe(competitorCount, total),
+    answerInclusionRate: safe(inclusionCount, total),
+    queryCoverage,
+    contentFreshnessDays,
+    entityConsistency: safe(canonicalCount, total),
   };
 }

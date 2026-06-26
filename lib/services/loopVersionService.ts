@@ -2,7 +2,7 @@
  * LoopVersionService — 循环工程版本的业务规则层。
  *
  * 分层：UI / actions → service（这里）→ repo → mock-data。
- *                            ↘ llmProvider.suggestImprovement
+ *                            ↘ llmProvider.improvePromptVersion
  *
  * 业务规则：
  *   1. name 1-200 字符
@@ -305,5 +305,5 @@ export async function suggestImprovementForLoop(
     throw new LoopVersionServiceError(`Loop version not found: ${loopId}`);
   }
   const provider = await getLLMProvider();
-  return provider.suggestImprovement({ kind: 'loop', loop });
+  return provider.improvePromptVersion({ kind: 'loop', loop });
 }

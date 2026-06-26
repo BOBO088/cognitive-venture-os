@@ -375,5 +375,5 @@ async function callPRDDraft(input: {
         }
       : {}),
   };
-  return provider.generatePRDDraft(providerInput);
+  return provider.generatePRD(providerInput);
 }

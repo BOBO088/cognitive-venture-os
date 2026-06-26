@@ -4,7 +4,7 @@
  * 分层：UI / actions → service（这里）→ repo → mock-data。
  *                            ↘ mvpProjectService（校验 projectId 引用）
  *                            ↘ launchResultService（校验 launchResultId 引用）
- *                            ↘ llmProvider（generateLessons 用于"从 launch 预填"）
+ *                            ↘ llmProvider（generateLessonLearned 用于"从 launch 预填"）
  *
  * 业务规则：
  *   1. projectId 必须存在（service 校验 MVPProject 引用）
@@ -325,7 +325,7 @@ export interface GenerateLessonFromLaunchOptions {
 }
 
 /**
- * 调用 LLMProvider.generateLessons 预填 lesson 草稿。
+ * 调用 LLMProvider.generateLessonLearned 预填 lesson 草稿。
  *
  * 注意：本方法**不写库**。它只是给 UI 一个"由 launch 预填"的入口；
  * 用户在表单里编辑后才会 createLesson。这是与 prdService.generatePRDForMVP
@@ -336,5 +336,5 @@ export async function generateLessonDraftForLaunch(
 ): Promise<LessonLearned> {
   const launch = await validateLaunchExists(launchResultId);
   const provider = await getLLMProvider();
-  return provider.generateLessons(launch);
+  return provider.generateLessonLearned(launch);
 }
